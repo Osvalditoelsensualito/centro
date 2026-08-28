@@ -1,0 +1,59 @@
+// Service Worker de Centro.
+// Estrategia: network-first (siempre intenta la versión más reciente si hay
+// conexión) con respaldo en caché para uso offline. Así evitamos que la PWA
+// se quede "pegada" a una versión antigua cuando el código se actualiza.
+//
+// IMPORTANTE: cada vez que publiques una nueva versión de la app, sube el
+// número de CACHE_VERSION. Eso invalida la caché anterior en el evento
+// "activate" y dispara el flujo de actualización del lado del cliente.
+const CACHE_VERSION = 'v1';
+const CACHE_NAME = `centro-cache-${CACHE_VERSION}`;
+
+// Recursos mínimos para poder abrir la app sin conexión.
+const APP_SHELL = [
+  './',
+  './manifest.json'
+];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(APP_SHELL))
+      .catch(() => {}) // no bloquear la instalación si algún recurso falla
+  );
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(
+        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+      ))
+      .then(() => self.clients.claim())
+  );
+});
+
+// Permite que la página le diga al SW en espera que active de inmediato
+// (usado junto al listener 'controllerchange' en el HTML).
+self.addEventListener('message', (event) => {
+  if (event.data === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+self.addEventListener('fetch', (event) => {
+  const { request } = event;
+  if (request.method !== 'GET') return;
+
+  event.respondWith(
+    fetch(request)
+      .then((response) => {
+        if (response && response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(request).then((cached) => cached || caches.match('./')))
+  );
+});
