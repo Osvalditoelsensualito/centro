@@ -919,6 +919,34 @@ body{transition:background .2s ease,color .2s ease}
 @media (min-width:1000px){.screen.movie-screen > .card{grid-column:1/-1;}.screen.movie-screen > .movie-content-card{grid-column:1/-1;}}
 @media (max-width:700px){.home-widget--water{grid-column:span 24}.home-widget--calories{grid-column:span 16}.home-widget--weather{grid-column:span 8}.home-widget--smartwatch,.home-widget--activity,.home-widget--habits,.home-widget--tasks,.home-widget--market,.home-widget--finance{grid-column:span 24}.home-widget--trading{grid-column:span 12}.home-layout-editor{bottom:calc(var(--nav-h) + 8px + var(--safe-bottom));padding:12px;border-radius:18px}.home-layout-editor .editor-actions{display:grid;grid-template-columns:1fr 1fr}.home-layout-editor .editor-actions .btn{min-width:0}}
 
+/* ---------- Recordatorio module (feature-scoped) ---------- */
+.reminder-cal-day .reminder-dot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:4px;background:var(--text-faint);vertical-align:middle}
+.reminder-cal-day.prio-media .reminder-dot{background:#f6902e}
+.reminder-cal-day.prio-alta .reminder-dot{background:var(--red)}
+.reminder-list-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--hairline);cursor:pointer}
+.reminder-list-row:last-child{border-bottom:none}
+.reminder-list-row img{width:38px;height:38px;border-radius:10px;object-fit:cover;border:1px solid var(--hairline);flex:0 0 auto}
+.reminder-list-row .reminder-bubble-ic{font-size:20px;flex:0 0 auto;width:38px;text-align:center}
+.reminder-list-row-copy{flex:1;min-width:0}
+.reminder-list-row-copy strong{display:block;font-size:13px}
+.reminder-list-row-copy small{display:block;color:var(--text-faint);font-size:10.5px;margin-top:2px}
+.reminder-bubble-host{position:fixed;top:0;left:0;right:0;z-index:300;display:flex;justify-content:center;padding:calc(10px + var(--safe-top)) 12px 0;pointer-events:none}
+.reminder-bubble{pointer-events:auto;width:100%;max-width:420px;border-radius:20px;border:1px solid rgba(227,168,87,.5);background:radial-gradient(circle at 12% 12%, rgba(227,168,87,.14), transparent 42%), var(--bg-elev-1);box-shadow:0 16px 40px rgba(0,0,0,.35);padding:12px 14px;animation:reminderDrop .22s cubic-bezier(.2,.8,.2,1)}
+@keyframes reminderDrop{from{transform:translateY(-30px);opacity:0}to{transform:translateY(0);opacity:1}}
+.reminder-bubble.prio-alta{border-color:rgba(246,144,46,.6)}
+.reminder-bubble.is-ignored{border-color:rgba(226,104,92,.72);background:radial-gradient(circle at 12% 12%, rgba(226,104,92,.22), transparent 44%), var(--bg-elev-1);box-shadow:0 16px 44px rgba(226,104,92,.24)}
+.reminder-bubble-top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.reminder-bubble-ic{font-size:22px;flex:0 0 auto}
+.reminder-bubble-img{width:40px;height:40px;border-radius:12px;object-fit:cover;flex:0 0 auto;border:1px solid var(--hairline)}
+.reminder-bubble-text{min-width:0}
+.reminder-bubble-text strong{display:block;font-family:var(--font-display);font-size:14px;line-height:1.25}
+.reminder-bubble-text small{display:block;color:var(--text-dim);font-size:11.5px;margin-top:2px;line-height:1.35}
+.reminder-bubble-actions{display:flex;gap:8px}
+.reminder-bubble-actions button{flex:1;min-height:38px;border-radius:12px;border:1px solid var(--hairline);background:var(--bg-elev-2);color:var(--text);font-size:12px;font-family:inherit;cursor:pointer;transition:filter .15s ease}
+.reminder-bubble-actions button:hover{filter:brightness(1.12)}
+.reminder-bubble-actions button:first-child{background:var(--accent);color:#1a1408;border-color:transparent;font-weight:600}
+@media (max-width:700px){.reminder-bubble{max-width:100%}}
+
 </style>
 </head>
 <body>
@@ -927,12 +955,12 @@ body{transition:background .2s ease,color .2s ease}
 (function () {
   'use strict';
   const DB_NAME = 'centro-db';
-  const DB_VERSION = 8;
+  const DB_VERSION = 9;
   const STORES = {
     habitDefs: 'id', habitStatus: 'id', taskDefs: 'id', taskStatus: 'id',
     water: 'date', calories: 'date', running: 'date', trading: 'id',
     tradingConfig: 'id', tradingAccounts: 'id', tradingDayAdjustments: 'id', finance: 'id', links: 'id', notes: 'id', settings: 'id', nytStatus: 'date',
-    gymRoutines: 'id', gymExercises: 'id', movies: 'id'
+    gymRoutines: 'id', gymExercises: 'id', movies: 'id', reminderDefs: 'id'
   };
   let dbPromise = null;
   function openDB() {
@@ -1046,6 +1074,13 @@ body{transition:background .2s ease,color .2s ease}
   async function createTask(x){const t={id:uid(),name:x.name.trim(),description:x.description||'',date:x.date, time:x.time||'',repeat:x.repeat,days:x.days||[],order:Date.now()};await put('taskDefs',t);return t;}
   async function toggleTask(id,date){const k=`${id}__${date}`,e=await get('taskStatus',k),completed=!e?.completed;await put('taskStatus',{id:k,taskId:id,date,completed,completedAt:completed?Date.now():null});return completed;}
   async function deleteTask(id){await del('taskDefs',id);for(const s of await byIndex('taskStatus','by_task',id))await del('taskStatus',s.id);}
+  // ---------- Recordatorios (sección "Recordatorio", antes "Tarea") ----------
+  async function reminders(){return (await all('reminderDefs')).sort((a,b)=>(a.date+((a.time)||'00:00')).localeCompare(b.date+((b.time)||'00:00')));}
+  async function remindersForDate(date){return (await reminders()).filter(r=>r.date===date);}
+  async function getReminder(id){return get('reminderDefs',id);}
+  async function createReminder(x){const r={id:uid(),title:(x.title||'').trim(),description:x.description||'',date:x.date,time:x.time||'09:00',repeat:x.repeat||'once',leadDays:Number(x.leadDays)||0,snoozeMinutes:Number(x.snoozeMinutes)||15,priority:x.priority||'media',image:x.image||'',notif:{cycleKey:'',status:'idle'},createdAt:Date.now()};await put('reminderDefs',r);return r;}
+  async function updateReminder(id,patch){const cur=await get('reminderDefs',id);if(!cur)return null;const next={...cur,...patch};await put('reminderDefs',next);return next;}
+  async function deleteReminder(id){await del('reminderDefs',id);}
   async function water(date){const s=await settings(),r=await get('water',date);return r||{date,glasses:0,goalGlasses:s.waterGoalGlasses,glassSizeMl:s.glassSizeMl};}
   async function setWater(date,g){const s=await settings(),r=await water(date),n={...r,glasses:Math.max(0,g),goalGlasses:s.waterGoalGlasses,glassSizeMl:s.glassSizeMl};await put('water',n);return n;}
   async function calories(date){const s=await settings(),r=await get('calories',date);return {date,consumed:(r&&r.consumed)||0,fat:(r&&r.fat)||0,protein:(r&&r.protein)||0,carbs:(r&&r.carbs)||0,goal:s.caloriesGoal,fatGoal:s.fatGoal||0,proteinGoal:s.proteinGoal||0,carbsGoal:s.carbsGoal||0};}
@@ -1313,7 +1348,7 @@ body{transition:background .2s ease,color .2s ease}
     );
     return{date,hasData,habits:{done:[...d,...n].filter(x=>x.completed).length,total:d.length+n.length},tasks:{done:t.filter(x=>x.completed).length,total:t.length},water:w,calories:c,running:r,trading:tr,expensesTotal:de.reduce((a,b)=>a+b.amount,0),expenses:de};
   }
-  window.CentroLogic={init,settings,updateSettings,localKey:today,today,monthKey,fmtDate,shortDate,addDays,daysInMonth,habits,habitsForDate,toggleHabit,createHabit,deleteHabit,moveHabit,tasksForDate,createTask,toggleTask,deleteTask,water,setWater,calories,addCalories,setCalGoal,setMacroGoals,running,setRunning,activityEstimates,tradingConfig,updateTradingConfig,trading,tradingEntriesForDate,addTradingEntry,setTrading,tradingHistory,equity,tradingStats,clearTrading,tradingAccounts,getTradingAccount,createTradingAccount,updateTradingAccount,deleteTradingAccount,tradingEntriesForAccount,addAccountTradingEntry,updateTradingEntry,deleteTradingEntry,tradingAccountStats,accountEquity,getDayAdjustment,setDayAdjustment,dayAdjustmentsForAccount,monthlyCalendarData,finance,setIncome,addExpense,deleteExpense,addIncome,deleteIncome,financeMonths,links,createLink,updateLink,deleteLink,notes,saveNote,deleteNote,nyt,setNyt,summary,uid,DAYS,gymRoutines,createGymRoutine,deleteGymRoutine,updateGymRoutine,gymExercisesForRoutine,createGymExercise,deleteGymExercise,getGymExercise,updateGymExercise,MOVIE_CATEGORIES,MOVIE_TYPES,movies,getMovie,createMovie,updateMovie,deleteMovie};
+  window.CentroLogic={init,settings,updateSettings,localKey:today,today,monthKey,fmtDate,shortDate,addDays,daysInMonth,habits,habitsForDate,toggleHabit,createHabit,deleteHabit,moveHabit,tasksForDate,createTask,toggleTask,deleteTask,reminders,remindersForDate,getReminder,createReminder,updateReminder,deleteReminder,water,setWater,calories,addCalories,setCalGoal,setMacroGoals,running,setRunning,activityEstimates,tradingConfig,updateTradingConfig,trading,tradingEntriesForDate,addTradingEntry,setTrading,tradingHistory,equity,tradingStats,clearTrading,tradingAccounts,getTradingAccount,createTradingAccount,updateTradingAccount,deleteTradingAccount,tradingEntriesForAccount,addAccountTradingEntry,updateTradingEntry,deleteTradingEntry,tradingAccountStats,accountEquity,getDayAdjustment,setDayAdjustment,dayAdjustmentsForAccount,monthlyCalendarData,finance,setIncome,addExpense,deleteExpense,addIncome,deleteIncome,financeMonths,links,createLink,updateLink,deleteLink,notes,saveNote,deleteNote,nyt,setNyt,summary,uid,DAYS,gymRoutines,createGymRoutine,deleteGymRoutine,updateGymRoutine,gymExercisesForRoutine,createGymExercise,deleteGymExercise,getGymExercise,updateGymExercise,MOVIE_CATEGORIES,MOVIE_TYPES,movies,getMovie,createMovie,updateMovie,deleteMovie};
 })();
 
 </script>
@@ -1626,7 +1661,7 @@ async function scheduleFitnessReminderUi(){
   }catch(err){console.error(err);}
 }
 
-const NAV_ITEMS=[['home','⌂','Inicio'],['habits','✓','Hábitos'],['tasks','☷','Tareas'],['gym','🏋','Gimnasio'],['movies','🎬','Películas'],['trading','↗','Trading'],['calories','◉','Calorías'],['finance','$','Finanzas'],['history','◷','Historial'],['links','🔗','Enlaces'],['news','📰','Noticias']];
+const NAV_ITEMS=[['home','⌂','Inicio'],['habits','✓','Hábitos'],['tasks','🔔','Recordatorio'],['gym','🏋','Gimnasio'],['movies','🎬','Películas'],['trading','↗','Trading'],['calories','◉','Calorías'],['finance','$','Finanzas'],['history','◷','Historial'],['links','🔗','Enlaces'],['news','📰','Noticias']];
 const VISIBLE_TABS_KEY='centro-visible-tabs';
 function getVisibleTabs(){
   try{const raw=localStorage.getItem(VISIBLE_TABS_KEY);if(raw){const parsed=JSON.parse(raw);return {...Object.fromEntries(NAV_ITEMS.map(([id])=>[id,true])),...parsed};}}catch{}
@@ -1818,6 +1853,95 @@ async function scheduleReminders(){
     },ms));
   }
 }
+// ---------- Burbuja de aviso en la app para "Recordatorio" (sin notificaciones del sistema) ----------
+let remBubbleQueue=[];
+let remBubbleActiveId=null;
+let remWatchTimer=null;
+function remYmd(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function reminderOccurrenceKey(r,ref){
+  if(!r.date) return null;
+  if(r.repeat==='once') return r.date;
+  if(r.repeat==='daily') return remYmd(ref);
+  if(r.repeat==='weekly'){
+    const baseDow=new Date(r.date+'T12:00:00').getDay();
+    const refDow=ref.getDay();
+    const diff=(refDow-baseDow+7)%7;
+    const occ=new Date(ref);occ.setDate(occ.getDate()-diff);
+    return remYmd(occ);
+  }
+  if(r.repeat==='yearly'){
+    const [,mo,dd]=r.date.split('-');
+    return `${ref.getFullYear()}-${mo}-${dd}`;
+  }
+  return r.date;
+}
+function reminderTriggerAt(r,occKey){
+  const [hh,mm]=(r.time||'09:00').split(':').map(Number);
+  const [y,mo,d]=occKey.split('-').map(Number);
+  const dt=new Date(y,(mo||1)-1,d||1,Number.isFinite(hh)?hh:9,Number.isFinite(mm)?mm:0,0,0);
+  dt.setDate(dt.getDate()-(Number(r.leadDays)||0));
+  return dt;
+}
+async function checkReminders(){
+  let defs;
+  try{defs=await L.reminders();}catch{defs=[];}
+  const now=new Date();
+  const active=[];
+  for(const r of defs){
+    const occKey=reminderOccurrenceKey(r,now);
+    if(!occKey) continue;
+    const triggerAt=reminderTriggerAt(r,occKey);
+    let notif=(r.notif&&typeof r.notif==='object')?{...r.notif}:{cycleKey:'',status:'idle'};
+    let changed=false;
+    if(notif.cycleKey!==occKey){notif={cycleKey:occKey,status:'idle'};changed=true;}
+    if(now>=triggerAt){
+      if(notif.status==='idle'){notif.status='shown';notif.shownAt=now.getTime();changed=true;}
+      else if(notif.status==='snoozed'){if(now.getTime()>=(notif.snoozeUntil||0)){notif.status='shown';notif.shownAt=now.getTime();changed=true;}}
+      else if(notif.status==='shown'){if(now.getTime()-(notif.shownAt||now.getTime())>=3600000){notif.status='ignored';changed=true;}}
+      if(notif.status==='shown'||notif.status==='ignored')active.push({id:r.id,title:r.title,description:r.description,image:r.image,priority:r.priority,snoozeMinutes:r.snoozeMinutes,notif});
+    }
+    if(changed)await L.updateReminder(r.id,{notif});
+  }
+  const rank={alta:0,media:1,baja:2};
+  active.sort((a,b)=>{
+    const ai=a.notif.status==='ignored'?0:1,bi=b.notif.status==='ignored'?0:1;
+    if(ai!==bi)return ai-bi;
+    const pr=(rank[a.priority]??1)-(rank[b.priority]??1);
+    if(pr)return pr;
+    return (a.notif.shownAt||0)-(b.notif.shownAt||0);
+  });
+  remBubbleQueue=active;
+  renderReminderBubble();
+}
+function renderReminderBubble(){
+  let host=document.getElementById('reminder-bubble-host');
+  if(!host){host=document.createElement('div');host.id='reminder-bubble-host';host.className='reminder-bubble-host';document.body.appendChild(host);}
+  if(!remBubbleQueue.length){host.innerHTML='';remBubbleActiveId=null;return;}
+  const r=remBubbleQueue[0];
+  remBubbleActiveId=r.id;
+  const ignored=r.notif.status==='ignored';
+  host.innerHTML=`<div class="reminder-bubble ${ignored?'is-ignored':''} prio-${esc(r.priority||'media')}" data-reminder-bubble="${r.id}">
+    <div class="reminder-bubble-top">${r.image?`<img class="reminder-bubble-img" src="${r.image}" alt="">`:'<span class="reminder-bubble-ic">🔔</span>'}<div class="reminder-bubble-text"><strong>${esc(r.title||'Recordatorio')}</strong>${r.description?`<small>${esc(r.description)}</small>`:''}</div></div>
+    <div class="reminder-bubble-actions"><button type="button" data-reminder-doing="${r.id}">Estoy en ello</button><button type="button" data-reminder-later="${r.id}">Ahora no</button></div>
+  </div>`;
+  host.querySelector('[data-reminder-doing]').onclick=()=>snoozeReminder(r.id,Number(r.snoozeMinutes)||15);
+  host.querySelector('[data-reminder-later]').onclick=()=>snoozeReminder(r.id,120);
+}
+async function snoozeReminder(id,minutes){
+  const r=await L.getReminder(id);
+  if(!r)return;
+  const notif={...(r.notif||{}),status:'snoozed',snoozeUntil:Date.now()+Math.max(1,minutes)*60000};
+  await L.updateReminder(id,{notif});
+  remBubbleActiveId=null;
+  await checkReminders();
+}
+function startReminderWatch(){
+  clearInterval(remWatchTimer);
+  checkReminders();
+  remWatchTimer=setInterval(checkReminders,20000);
+  window.addEventListener('focus',checkReminders);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkReminders();});
+}
 function setupGlobal(){document.body.onclick=async e=>{const n=e.target.closest('[data-nav]');if(n){go(n.dataset.nav);return;}if(e.target.closest('[data-back]')){go('home');return;}if(e.target.matches('[data-install]'))return;};document.body.ondblclick=e=>{const n=e.target.closest('[data-dblnav]');if(n){go(n.dataset.dblnav);}};window.addEventListener('focus',scheduleReminders);window.addEventListener('focus',()=>{if(state.screen==='home'&&!homeLayoutState.active)render();});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.screen==='home'&&!homeLayoutState.active)render();});let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{applyUiScale(getUiScale());if(state.screen==='home'){applyHomeLayoutPreview();enforceHomeHeights();}},120);});}
 async function home(){
   const [s,w,c,dn,nn,tasks,run,tr,fin,nyt]=await Promise.all([
@@ -1901,7 +2025,45 @@ function habitRowControl(x,type,animMode){
   return `<button class="check-circle ${x.completed?'checked':''}" data-${type==='daily'?'habit':'night-habit'}="${x.def.id}">${x.completed?'✓':''}</button>`;
 }
 async function habitsScreen(){const s=await L.settings();const animMode=s.habitCompletionAnimation||'circle';const [d,n]=await Promise.all([L.habitsForDate(state.date,'daily'),L.habitsForDate(state.date,'night')]);const build=(title,items,type)=>`${section(title,`<button class="btn btn-primary btn-sm" data-add-habit="${type}">+ Agregar</button>`)}<article class="card habit-list-card">${items.length?items.map((x,i)=>`<div class="check-row ${x.completed?'complete':''}" data-row="${x.def.id}">${habitRowControl(x,type,animMode)}<div class="check-label"><strong>${esc(x.def.icon)} ${esc(x.def.name)}</strong>${x.def.repeat==='once'?'<small>Solo una vez</small>':'<small>Permanente</small>'}</div><div class="habit-actions"><button class="icon-btn" data-move-habit="${type}:${x.def.id}:up" ${i===0?'disabled':''} title="Subir">↑</button><button class="icon-btn" data-move-habit="${type}:${x.def.id}:down" ${i===items.length-1?'disabled':''} title="Bajar">↓</button><button class="icon-btn" data-delete-habit="${x.def.id}">🗑</button></div></div>`).join(''):empty('✓','No hay hábitos pendientes.')}</article>`;return `<main class="screen">${build('Hábitos diarios',d,'daily')}${build('Hábitos nocturnos',n,'night')}</main>`;}
-async function tasksScreen(){const items=await L.tasksForDate(state.date);return `<main class="screen">${section('Tareas de hoy',`<button class="btn btn-primary btn-sm" data-add-task>+ Agregar</button>`)}<article class="card task-list-card">${items.length?items.map(x=>`<div class="check-row ${x.completed?'complete':''}"><button class="check-circle ${x.completed?'checked':''}" data-task="${x.def.id}">${x.completed?'✓':''}</button><div class="check-label"><strong>${esc(x.def.name)}</strong>${x.def.description?`<small>${esc(x.def.description)}</small>`:''}<small>${x.def.repeat==='once'?'Solo hoy':x.def.repeat==='daily'?'Todos los días':'Repetitiva'}</small></div><button class="icon-btn mini" data-delete-task="${x.def.id}">🗑</button></div>`).join(''):empty('☷','No hay tareas para hoy.')}</article></main>`;}
+function reminderPrioLabel(p){return p==='alta'?'Alta':p==='baja'?'Baja':'Media';}
+function reminderRepeatLabel(r){return r==='daily'?'Diario':r==='weekly'?'Semanal':r==='yearly'?'Anual':'Una sola vez';}
+function reminderCalendarGrid(monthKey,defsByDate){
+  const [y,m]=monthKey.split('-').map(Number);
+  const numDays=L.daysInMonth(monthKey);
+  const firstDow=new Date(Date.UTC(y,m-1,1,12)).getUTCDay();
+  const cells=[];
+  for(let i=0;i<firstDow;i++)cells.push('<div class="cal-cell cal-empty"></div>');
+  for(let d=1;d<=numDays;d++){
+    const dateKey=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const list=defsByDate[dateKey]||[];
+    const isToday=dateKey===L.today();
+    if(list.length){
+      const topPrio=list.some(r=>r.priority==='alta')?'alta':list.some(r=>r.priority==='media')?'media':'baja';
+      cells.push(`<button class="cal-cell cal-day has-data reminder-cal-day prio-${esc(topPrio)} ${isToday?'is-today':''}" data-reminder-day="${dateKey}"><span class="cal-daynum">${d}</span><span class="cal-ops"><span class="reminder-dot"></span>${list.length===1?'1 rec.':`${list.length} rec.`}</span></button>`);
+    } else {
+      cells.push(`<button class="cal-cell cal-day ${isToday?'is-today':''}" data-reminder-day="${dateKey}"><span class="cal-daynum">${d}</span></button>`);
+    }
+  }
+  return cells.join('');
+}
+async function tasksScreen(){
+  const monthKey=state.reminderCalendarMonth||L.today().slice(0,7);
+  const all=await L.reminders();
+  const defsByDate={};
+  for(const r of all){(defsByDate[r.date]=defsByDate[r.date]||[]).push(r);}
+  const allMonths=[...new Set([...all.map(r=>r.date.slice(0,7)),L.today().slice(0,7)])].sort();
+  const idx=allMonths.indexOf(monthKey);
+  const canPrev=idx>0;
+  const canNext=idx>=0&&idx<allMonths.length-1;
+  return `<main class="screen">
+    ${section('Recordatorio',`<button class="btn btn-primary btn-sm" data-add-reminder="${esc(state.date)}">+ Agregar</button>`)}
+    <article class="card">
+      <div class="cal-nav"><button class="icon-btn" data-reminder-cal-prev ${canPrev?'':'disabled'}>‹</button><strong>${esc(monthLabel(monthKey))}</strong><button class="icon-btn" data-reminder-cal-next ${canNext?'':'disabled'}>›</button></div>
+      <div class="cal-grid cal-head">${['D','L','M','X','J','V','S'].map(d=>`<div class="cal-headcell">${d}</div>`).join('')}</div>
+      <div class="cal-grid">${reminderCalendarGrid(monthKey,defsByDate)}</div>
+    </article>
+  </main>`;
+}
 async function gymScreen(){
   const routines=await L.gymRoutines();
   const blocks=await Promise.all(routines.map(async r=>{
@@ -2504,6 +2666,10 @@ function bind(){document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=
   document.querySelectorAll('[data-cal-prev]').forEach(b=>b.onclick=()=>{const id=b.dataset.calPrev;state.tradingCalendarMonth=state.tradingCalendarMonth||{};const cur=state.tradingCalendarMonth[id]||L.today().slice(0,7);const [y,m]=cur.split('-').map(Number);const d=new Date(Date.UTC(y,m-2,1,12));state.tradingCalendarMonth[id]=`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;render();});
   document.querySelectorAll('[data-cal-next]').forEach(b=>b.onclick=()=>{const id=b.dataset.calNext;state.tradingCalendarMonth=state.tradingCalendarMonth||{};const cur=state.tradingCalendarMonth[id]||L.today().slice(0,7);const [y,m]=cur.split('-').map(Number);const d=new Date(Date.UTC(y,m,1,12));state.tradingCalendarMonth[id]=`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;render();});
   document.querySelectorAll('[data-cal-day]').forEach(b=>b.onclick=()=>{const [accId,date]=b.dataset.calDay.split('|');tradingDayModal(accId,date);});
+  document.querySelectorAll('[data-reminder-cal-prev]').forEach(b=>b.onclick=()=>{const cur=state.reminderCalendarMonth||L.today().slice(0,7);const [y,m]=cur.split('-').map(Number);const d=new Date(Date.UTC(y,m-2,1,12));state.reminderCalendarMonth=`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;render();});
+  document.querySelectorAll('[data-reminder-cal-next]').forEach(b=>b.onclick=()=>{const cur=state.reminderCalendarMonth||L.today().slice(0,7);const [y,m]=cur.split('-').map(Number);const d=new Date(Date.UTC(y,m,1,12));state.reminderCalendarMonth=`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;render();});
+  document.querySelectorAll('[data-reminder-day]').forEach(b=>b.onclick=()=>reminderDayModal(b.dataset.reminderDay));
+  document.querySelectorAll('[data-add-reminder]').forEach(b=>b.onclick=()=>reminderModal(b.dataset.addReminder));
   $('[data-clear-all]')?.addEventListener('click',clearAllModal);
   $('[data-export-data]')?.addEventListener('click',exportDataToFile);
   $('[data-update-app]')?.addEventListener('click',()=>location.reload());
@@ -2513,6 +2679,73 @@ function bind(){document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=
 }
 async function habitModal(type){modal(type==='daily'?'Nuevo hábito diario':'Nuevo hábito nocturno',`${field('Nombre','name','','text','required')}${field('Icono (opcional)','icon','⭐')}${selectField('Tipo','repeat','permanent',[['permanent','Permanente'],['once','Solo una vez']])}<div class="field" id="onceDateField" style="display:none">${field('Fecha','onceDate',state.date,'date')}</div>`,async m=>{const repeat=m.querySelector('[name=repeat]').value;const onceDate=m.querySelector('[name=onceDate]')?.value||state.date;const name=m.querySelector('[name=name]').value.trim();if(!name){toast('Escribe un nombre.');return false;}await L.createHabit({name,icon:m.querySelector('[name=icon]').value,type,repeat,onceDate});toast('Hábito creado.');render();});}
 async function taskModal(){modal('Nueva tarea',`${field('Nombre','name','','text','required')}${field('Descripción','description','')}${field('Fecha','date',state.date,'date')}${field('Hora opcional','time','','time')}${selectField('Repetición','repeat','once',[['once','Solo esta vez'],['daily','Todos los días'],['custom','Días específicos']])}<div class="field"><label>Días específicos (si aplica)</label><input name="days" placeholder="1,3,5 = lunes, miércoles, viernes"></div>`,async m=>{const name=m.querySelector('[name=name]').value.trim();if(!name){toast('Escribe la tarea.');return false;}const days=(m.querySelector('[name=days]').value||'').split(',').map(x=>Number(x.trim())).filter(x=>x>=0&&x<=6);await L.createTask({name,description:m.querySelector('[name=description]').value,date:m.querySelector('[name=date]').value,time:m.querySelector('[name=time]').value,repeat:m.querySelector('[name=repeat]').value,days});toast('Tarea creada.');scheduleReminders();render();});}
+async function reminderDayModal(dateKey){
+  const list=await L.remindersForDate(dateKey);
+  const rows=list.length?list.map(r=>`<div class="reminder-list-row" data-reminder-open="${r.id}">${r.image?`<img src="${r.image}" alt="">`:'<span class="reminder-bubble-ic">🔔</span>'}<div class="reminder-list-row-copy"><strong>${esc(r.title)}</strong><small>${esc(r.time)} · ${esc(reminderRepeatLabel(r.repeat))} · Prioridad ${esc(reminderPrioLabel(r.priority)).toLowerCase()}</small></div><button class="icon-btn mini" data-delete-reminder="${r.id}">🗑</button></div>`).join(''):`<p class="muted">No hay recordatorios para este día.</p>`;
+  const wrap=modal(L.shortDate(dateKey),`<div class="reminder-list">${rows}</div>`,async()=>true,'Cerrar');
+  wrap.querySelectorAll('[data-reminder-open]').forEach(el=>el.addEventListener('click',e=>{if(e.target.closest('[data-delete-reminder]'))return;wrap.remove();reminderModal(dateKey,el.dataset.reminderOpen);}));
+  wrap.querySelectorAll('[data-delete-reminder]').forEach(b=>b.onclick=async(e)=>{e.stopPropagation();if(confirm('¿Eliminar este recordatorio?')){await L.deleteReminder(b.dataset.deleteReminder);toast('Recordatorio eliminado.');wrap.remove();render();reminderDayModal(dateKey);}});
+  const actions=wrap.querySelector('.modal-actions');
+  const addBtn=document.createElement('button');
+  addBtn.className='btn btn-primary';
+  addBtn.textContent='+ Nuevo recordatorio';
+  addBtn.onclick=()=>{wrap.remove();reminderModal(dateKey);};
+  actions.insertBefore(addBtn,actions.firstChild);
+}
+async function reminderModal(dateKey,editId){
+  const existing=editId?await L.getReminder(editId):null;
+  const title=existing?'Editar recordatorio':'Nuevo recordatorio';
+  const body=`
+    ${field('Título','title',existing?.title||'','text','required')}
+    ${field('Descripción','description',existing?.description||'')}
+    ${field('Fecha','date',existing?.date||dateKey||state.date,'date','required')}
+    ${field('Hora','time',existing?.time||'09:00','time','required')}
+    ${selectField('Repetición','repeat',existing?.repeat||'once',[['once','Una sola vez'],['daily','Diario'],['weekly','Semanal'],['yearly','Anual (cumpleaños / fechas festivas)']])}
+    ${field('Avisar con antelación (días antes)','leadDays',existing?.leadDays??0,'number','min="0" max="60"')}
+    ${field('Posponer con "Estoy en ello" (minutos)','snoozeMinutes',existing?.snoozeMinutes??15,'number','min="1" max="1440"')}
+    ${selectField('Prioridad','priority',existing?.priority||'media',[['baja','Baja'],['media','Media'],['alta','Alta']])}
+    <div class="field"><label>Foto (opcional)</label>${existing?.image?`<img class="gym-exercise-edit-preview" src="${existing.image}" alt="">`:''}<input name="image" type="file" accept="image/*"></div>
+  `;
+  const wrap=modal(title,body,async m=>{
+    const t=m.querySelector('[name=title]').value.trim();
+    if(!t){toast('Escribe un título para el recordatorio.');return false;}
+    const d=m.querySelector('[name=date]').value;
+    if(!d){toast('Elige una fecha.');return false;}
+    const file=m.querySelector('[name=image]').files[0];
+    let image=existing?.image||'';
+    if(file){try{image=await readImageFile(file);}catch{}}
+    const payload={
+      title:t,
+      description:m.querySelector('[name=description]').value,
+      date:d,
+      time:m.querySelector('[name=time]').value||'09:00',
+      repeat:m.querySelector('[name=repeat]').value,
+      leadDays:m.querySelector('[name=leadDays]').value,
+      snoozeMinutes:m.querySelector('[name=snoozeMinutes]').value,
+      priority:m.querySelector('[name=priority]').value,
+      image
+    };
+    if(existing){
+      // Si cambia la fecha/hora/repetición, reiniciamos el estado del aviso para que se recalcule.
+      const cycleAffected=payload.date!==existing.date||payload.time!==existing.time||payload.repeat!==existing.repeat;
+      await L.updateReminder(existing.id,{...payload,notif:cycleAffected?{cycleKey:'',status:'idle'}:existing.notif});
+      toast('Recordatorio actualizado.');
+    } else {
+      await L.createReminder(payload);
+      toast('Recordatorio creado.');
+    }
+    checkReminders();
+    render();
+  },existing?'Guardar':'Crear');
+  if(existing){
+    const del=document.createElement('button');
+    del.className='btn btn-danger btn-block';
+    del.style.marginTop='10px';
+    del.textContent='Eliminar recordatorio';
+    del.onclick=async()=>{if(confirm('¿Eliminar este recordatorio?')){await L.deleteReminder(existing.id);toast('Recordatorio eliminado.');wrap.remove();render();}};
+    wrap.querySelector('.modal-body').appendChild(del);
+  }
+}
 
 const GEMINI_API_KEY_STORAGE='user_gemini_api_key';
 // Current low-latency multimodal model: stable, image input and structured output supported.
@@ -3237,7 +3470,7 @@ async function importDataFromFile(file){
     alert('No se pudo importar el archivo. Verifica que sea un JSON de datos exportado desde Centro.');
   }
 }
-async function boot(){const saved=localStorage.getItem('centro-theme')||'dark';setTheme(saved);applyUiScale(getUiScale());applySideMargin(getSideMargin());await L.init();try{const logoRec=await CentroDB.get('settings','appLogo');state.logo=(logoRec&&logoRec.value)||'';state.logoLabel=(logoRec&&logoRec.label)||'';}catch{state.logo='';state.logoLabel='';}applyFaviconLogo(state.logo);syncPwaManifest(state.logo);setupGlobal();await render();scheduleReminders();}
+async function boot(){const saved=localStorage.getItem('centro-theme')||'dark';setTheme(saved);applyUiScale(getUiScale());applySideMargin(getSideMargin());await L.init();try{const logoRec=await CentroDB.get('settings','appLogo');state.logo=(logoRec&&logoRec.value)||'';state.logoLabel=(logoRec&&logoRec.label)||'';}catch{state.logo='';state.logoLabel='';}applyFaviconLogo(state.logo);syncPwaManifest(state.logo);setupGlobal();await render();scheduleReminders();startReminderWatch();}
 window.addEventListener('error',e=>console.error('Centro error',e.error||e.message));
 boot().catch(e=>{console.error(e);document.querySelector('#root').innerHTML=`<div class="fatal"><h1>No se pudo cargar Centro</h1><p>${esc(e.message||e)}</p><button class="btn btn-primary" onclick="location.reload()">Recargar</button></div>`;});
 })();
