@@ -931,6 +931,8 @@ body{transition:background .2s ease,color .2s ease}
 .reminder-list-row-copy strong{display:block;font-size:13px}
 .reminder-list-row-copy small{display:block;color:var(--text-faint);font-size:10.5px;margin-top:2px}
 .reminder-bubble-host{position:fixed;top:0;left:0;right:0;z-index:300;display:flex;justify-content:center;padding:calc(10px + var(--safe-top)) 12px 0;pointer-events:none}
+.habit-reminder-bubble-host{position:fixed;left:0;right:0;bottom:calc(var(--nav-h) + 12px + var(--safe-bottom));z-index:299;display:flex;justify-content:center;padding:0 12px;pointer-events:none}
+.habit-reminder-bubble-host .reminder-bubble{pointer-events:auto}
 .reminder-bubble{pointer-events:auto;width:100%;max-width:420px;border-radius:20px;border:1px solid rgba(227,168,87,.5);background:radial-gradient(circle at 12% 12%, rgba(227,168,87,.14), transparent 42%), var(--bg-elev-1);box-shadow:0 16px 40px rgba(0,0,0,.35);padding:12px 14px;animation:reminderDrop .22s cubic-bezier(.2,.8,.2,1)}
 @keyframes reminderDrop{from{transform:translateY(-30px);opacity:0}to{transform:translateY(0);opacity:1}}
 .reminder-bubble.prio-alta{border-color:rgba(246,144,46,.6)}
@@ -1067,7 +1069,7 @@ body{transition:background .2s ease,color .2s ease}
   async function habits(type){return (await all('habitDefs')).filter(x=>x.type===type).sort((a,b)=>a.order-b.order);}
   async function habitsForDate(date,type){const defs=(await habits(type)).filter(x=>x.repeat==='permanent'||(x.repeat==='once'&&x.onceDate===date));const out=[];for(const d of defs){const s=await get('habitStatus',`${d.id}__${date}`);out.push({def:d,completed:!!s?.completed});}return out;}
   async function toggleHabit(id,date){const k=`${id}__${date}`,e=await get('habitStatus',k),completed=!e?.completed;await put('habitStatus',{id:k,habitId:id,date,completed,completedAt:completed?Date.now():null});return completed;}
-  async function createHabit(x){const ds=await habits(x.type);const h={id:uid(),name:x.name.trim(),icon:x.icon||'⭐',type:x.type,repeat:x.repeat,onceDate:x.repeat==='once'?x.onceDate:null,order:ds.length,createdAt:Date.now()};await put('habitDefs',h);return h;}
+  async function createHabit(x){const ds=await habits(x.type);const h={id:uid(),name:x.name.trim(),icon:x.icon||'⭐',type:x.type,repeat:x.repeat,onceDate:x.repeat==='once'?x.onceDate:null,order:ds.length,createdAt:Date.now(),reminderTime:x.reminderTime||null,reminderCount:x.reminderTime?Math.max(1,Number(x.reminderCount)||1):null};await put('habitDefs',h);return h;}
   async function deleteHabit(id){await del('habitDefs',id);for(const s of await byIndex('habitStatus','by_habit',id))await del('habitStatus',s.id);}
   async function moveHabit(type,id,direction){const list=await habits(type);const idx=list.findIndex(h=>h.id===id);if(idx===-1)return;const swapIdx=direction==='up'?idx-1:idx+1;if(swapIdx<0||swapIdx>=list.length)return;const tmp=list[idx];list[idx]=list[swapIdx];list[swapIdx]=tmp;for(let i=0;i<list.length;i++){if(list[i].order!==i){list[i].order=i;await put('habitDefs',list[i]);}}}
   async function tasksForDate(date){const allT=await all('taskDefs'), vis=allT.filter(t=>t.repeat==='once'?t.date===date:t.repeat==='daily'?true:t.repeat==='custom'?t.days.includes(new Date(date+'T12:00:00Z').getUTCDay()):false);const out=[];for(const d of vis){const s=await get('taskStatus',`${d.id}__${date}`);out.push({def:d,completed:!!s?.completed});}return out.sort((a,b)=>(a.def.time||'99:99').localeCompare(b.def.time||'99:99'));}
@@ -1814,6 +1816,23 @@ function monthName(monthKey){const [y,m]=monthKey.split('-').map(Number);return 
 function shiftMonth(monthKey,delta){const [y,m]=monthKey.split('-').map(Number);const d=new Date(Date.UTC(y,m-1+delta,1,12));return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;}
 function financeDefaultDate(month){return month===state.date.slice(0,7)?state.date:`${month}-01`;}
 function donutChart(segments){const total=segments.reduce((a,s)=>a+s.value,0),r=45,c=2*Math.PI*r,cx=60,cy=60;let offset=0;const circles=total>0?segments.filter(s=>s.value>0).map(s=>{const frac=s.value/total,len=c*frac,dashoffset=-offset;offset+=len;return `<circle cx="${cx}" cy="${cy}" r="${r}" stroke-width="14" fill="none" stroke="${s.color}" stroke-dasharray="${len} ${c-len}" stroke-dashoffset="${dashoffset}"></circle>`;}).join(''):`<circle cx="${cx}" cy="${cy}" r="${r}" stroke-width="14" fill="none" stroke="var(--bg-elev-3)"></circle>`;return `<svg width="120" height="120" viewBox="0 0 120 120" class="donut-chart">${circles}</svg>`;}
+function caloriesPieRingArcs(segs,radius,strokeWidth){const circ=2*Math.PI*radius;let offset=0;return segs.filter(s=>s.frac>0).map(s=>{const len=circ*s.frac;const dashoffset=-offset;offset+=len;return `<circle cx="60" cy="60" r="${radius}" stroke-width="${strokeWidth}" fill="none" stroke="${s.color}" stroke-dasharray="${len} ${Math.max(0,circ-len)}" stroke-dashoffset="${dashoffset}"></circle>`;}).join('');}
+function caloriesPie(c){
+  const goal=Number(c.goal)||0,consumed=Math.max(0,Number(c.consumed)||0);
+  const fatKcal=Math.max(0,(Number(c.fat)||0)*9),proteinKcal=Math.max(0,(Number(c.protein)||0)*4),carbsKcal=Math.max(0,(Number(c.carbs)||0)*4);
+  const macroKcal=fatKcal+proteinKcal+carbsKcal;
+  const caloriasKcal=Math.max(0,consumed-macroKcal);
+  const parts=[{color:'#22c55e',v:caloriasKcal},{color:'#ef4444',v:fatKcal},{color:'#3b82f6',v:proteinKcal},{color:'#facc15',v:carbsKcal}].filter(p=>p.v>0);
+  const baseFrac=goal>0?Math.min(1,consumed/goal):(consumed>0?1:0);
+  const overFrac=(goal>0&&consumed>goal)?Math.min(1,(consumed-goal)/goal):0;
+  const baseSegs=consumed>0?parts.map(p=>({color:p.color,frac:(p.v/consumed)*baseFrac})):[];
+  const overSegs=(overFrac>0&&consumed>0)?parts.map(p=>({color:p.color,frac:(p.v/consumed)*overFrac})):[];
+  const track=`<circle cx="60" cy="60" r="48" stroke-width="10" fill="none" stroke="var(--bg-elev-3)"></circle>`;
+  const baseArc=caloriesPieRingArcs(baseSegs,48,10);
+  const overTrack=overSegs.length?`<circle cx="60" cy="60" r="60" stroke-width="6" fill="none" stroke="var(--bg-elev-3)"></circle>`:'';
+  const overArc=overSegs.length?caloriesPieRingArcs(overSegs,60,6):'';
+  return `<div class="ring-wrap"><svg width="132" height="132" viewBox="0 0 120 120"><g transform="rotate(-90 60 60)">${track}${baseArc}${overTrack}${overArc}</g></svg><div class="ring-center"><div class="num">${esc(String(consumed))}</div><div class="label">kcal</div><div class="ring-sub">de ${esc(String(goal))}</div></div></div>`;
+}
 function weekStackedChart(dowLabels,rows,colorA,colorB){
   const maxDow=Math.max(1,...rows.map(r=>r.a+r.b));
   return `<div class="finance-week-chart">${dowLabels.map((lab,i)=>{
@@ -1941,6 +1960,100 @@ function startReminderWatch(){
   remWatchTimer=setInterval(checkReminders,20000);
   window.addEventListener('focus',checkReminders);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkReminders();});
+  startHabitReminderWatch();
+  startWaterReminderWatch();
+}
+// ---------- Recordatorios de hábitos (hora + veces al día, opcionales) ----------
+const HABIT_REMINDER_INTERVAL_MS=5*60*60*1000;
+let habitRemQueue=[];
+let habitRemWatchTimer=null;
+function habitReminderSchedule(def){
+  if(!def.reminderTime)return [];
+  const count=Math.max(1,Number(def.reminderCount)||1);
+  const [hh,mm]=String(def.reminderTime).split(':').map(Number);
+  if(Number.isNaN(hh)||Number.isNaN(mm))return [];
+  const base=new Date();base.setHours(hh,mm,0,0);
+  const out=[];
+  for(let i=0;i<count;i++)out.push(new Date(base.getTime()+i*HABIT_REMINDER_INTERVAL_MS));
+  return out;
+}
+async function checkHabitReminders(){
+  let items=[];
+  try{
+    const date=L.today();
+    const [d,n]=await Promise.all([L.habitsForDate(date,'daily'),L.habitsForDate(date,'night')]);
+    items=[...d,...n];
+  }catch{items=[];}
+  const now=new Date();
+  const active=[];
+  for(const x of items){
+    const def=x.def;
+    if(!def.reminderTime)continue;
+    const schedule=habitReminderSchedule(def);
+    if(!schedule.length)continue;
+    const key=`${def.id}__${L.today()}`;
+    let status=null;
+    try{status=await CentroDB.get('habitStatus',key);}catch{status=null;}
+    const completed=!!(status&&status.completed);
+    if(completed)continue;
+    let dueIdx=-1;
+    for(let i=0;i<schedule.length;i++)if(now>=schedule[i])dueIdx=i;
+    if(dueIdx<0)continue;
+    let notif=(status&&status.notif&&typeof status.notif==='object')?{...status.notif}:{occIndex:-1,status:'idle'};
+    let changed=false;
+    if(notif.occIndex!==dueIdx){notif={occIndex:dueIdx,status:'idle'};changed=true;}
+    if(notif.status==='idle'){notif.status='shown';changed=true;}
+    if(notif.status==='shown')active.push({id:def.id,name:def.name,icon:def.icon,type:def.type,notif});
+    if(changed){const next={id:key,habitId:def.id,date:L.today(),completed:false,completedAt:null,...(status||{}),notif};await CentroDB.put('habitStatus',next);}
+  }
+  habitRemQueue=active;
+  renderHabitReminderBubble();
+}
+function renderHabitReminderBubble(){
+  let host=document.getElementById('habit-reminder-bubble-host');
+  if(!host){host=document.createElement('div');host.id='habit-reminder-bubble-host';host.className='habit-reminder-bubble-host';document.body.appendChild(host);}
+  if(!habitRemQueue.length){host.innerHTML='';return;}
+  const h=habitRemQueue[0];
+  host.innerHTML=`<div class="reminder-bubble" data-habit-reminder-bubble="${h.id}">
+    <div class="reminder-bubble-top"><span class="reminder-bubble-ic">${esc(h.icon||'⭐')}</span><div class="reminder-bubble-text"><strong>${esc(h.name)}</strong><small>Recordatorio de hábito</small></div></div>
+    <div class="reminder-bubble-actions"><button type="button" data-habit-reminder-done="${h.id}">Hecho</button><button type="button" data-habit-reminder-doing="${h.id}">Estoy en ello</button></div>
+  </div>`;
+  host.querySelector('[data-habit-reminder-done]').onclick=async()=>{await L.toggleHabit(h.id,L.today());habitRemQueue=habitRemQueue.filter(x=>x.id!==h.id);renderHabitReminderBubble();if(state.screen==='habits'||state.screen==='home')render();};
+  host.querySelector('[data-habit-reminder-doing]').onclick=async()=>{const key=`${h.id}__${L.today()}`;let status=null;try{status=await CentroDB.get('habitStatus',key);}catch{status=null;}const notif={...(status&&status.notif?status.notif:{occIndex:0,status:'idle'}),status:'dismissed'};const next={id:key,habitId:h.id,date:L.today(),completed:false,completedAt:null,...(status||{}),notif};await CentroDB.put('habitStatus',next);habitRemQueue=habitRemQueue.filter(x=>x.id!==h.id);renderHabitReminderBubble();};
+}
+function startHabitReminderWatch(){
+  clearInterval(habitRemWatchTimer);
+  checkHabitReminders();
+  habitRemWatchTimer=setInterval(checkHabitReminders,30000);
+  window.addEventListener('focus',checkHabitReminders);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkHabitReminders();});
+}
+// ---------- Recordatorio de agua cada 3 horas hasta cumplir la meta ----------
+const WATER_REMINDER_INTERVAL_MS=3*60*60*1000;
+let waterRemWatchTimer=null;
+async function checkWaterReminder(){
+  try{
+    const date=L.today();
+    const w=await L.water(date);
+    if((w.glasses||0)>=(w.goalGlasses||0))return;
+    const now=Date.now();
+    const last=Number(w.reminderLastAt)||0;
+    if(!last){await CentroDB.put('water',{...w,reminderLastAt:now});return;}
+    if(now-last>=WATER_REMINDER_INTERVAL_MS){
+      const missing=Math.max(0,(w.goalGlasses||0)-(w.glasses||0));
+      const msg=`Te quedan ${missing} vaso${missing===1?'':'s'} para culminar la meta`;
+      toast(`💧 ${msg}`);
+      if(await canNotify())sendNotification('💧 Recordatorio de agua',msg);
+      await CentroDB.put('water',{...w,reminderLastAt:now});
+    }
+  }catch{}
+}
+function startWaterReminderWatch(){
+  clearInterval(waterRemWatchTimer);
+  checkWaterReminder();
+  waterRemWatchTimer=setInterval(checkWaterReminder,60000);
+  window.addEventListener('focus',checkWaterReminder);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkWaterReminder();});
 }
 function setupGlobal(){document.body.onclick=async e=>{const n=e.target.closest('[data-nav]');if(n){go(n.dataset.nav);return;}if(e.target.closest('[data-back]')){go('home');return;}if(e.target.matches('[data-install]'))return;};document.body.ondblclick=e=>{const n=e.target.closest('[data-dblnav]');if(n){go(n.dataset.dblnav);}};window.addEventListener('focus',scheduleReminders);window.addEventListener('focus',()=>{if(state.screen==='home'&&!homeLayoutState.active)render();});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.screen==='home'&&!homeLayoutState.active)render();});let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{applyUiScale(getUiScale());if(state.screen==='home'){applyHomeLayoutPreview();enforceHomeHeights();}},120);});}
 async function home(){
@@ -1966,7 +2079,7 @@ async function home(){
   const showTasks=visible.tasks!==false;
   const showNews=visible.news!==false;
   const showFinance=visible.finance!==false;
-  const heroCaloriesCard=showCalories?`<article class="card metric-card" data-dblnav="calories"><div class="card-title">🔥 Calorías</div><div class="center-ring">${ring(calPct,'kcal',`${c.consumed}`,`de ${c.goal}`,'cal')}</div><div class="metric-status ${c.consumed>c.goal?'bad':'good'}">${c.consumed>c.goal?'Meta excedida':`${Math.max(0,c.goal-c.consumed)} kcal restantes`}</div></article>`:'';
+  const heroCaloriesCard=showCalories?`<article class="card metric-card" data-dblnav="calories"><div class="card-title">🔥 Calorías</div><div class="center-ring">${caloriesPie(c)}</div><div class="metric-status ${c.consumed>c.goal?'bad':'good'}">${c.consumed>c.goal?'Meta excedida':`${Math.max(0,c.goal-c.consumed)} kcal restantes`}</div></article>`:'';
   const activityCard=showCalories?`<article class="card stat-card activity-home-card" data-nav="calories" data-dblnav="calories"><div class="card-title">🏃 Actividad</div><div class="big-stat">${activityBurn>0?num(activityBurn):'—'}</div><div class="muted">${activityBurn>0?'kcal gastadas':'sin registrar'}</div><div class="activity-mini"><span>🏃 ${run.ran?`${num(run.km)} km`:'—'}</span><span>🚶 ${run.steps?num(run.steps):'—'} pasos</span></div></article>`:'';
   const tradingCard=showTrading?`<article class="card stat-card" data-nav="trading" data-dblnav="trading"><div class="card-title">Trading</div><div class="big-stat ${tr.amount>0?'gain':tr.amount<0?'loss':''}">${tr.result==='none'?'—':`${tr.amount>=0?'+':''}${money(tr.amount,'USD')}`}</div><div class="muted">${tr.result==='none'?'sin registrar':tr.result==='gain'?'ganadora':tr.result==='loss'?'perdedora':tr.result==='mixed'?'mixto':'breakeven'}</div></article>`:'';
   const gridCardsList=[activityCard,tradingCard].filter(Boolean);
@@ -2677,7 +2790,7 @@ function bind(){document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=
   $('#import-data-input')?.addEventListener('change',async(e)=>{const file=e.target.files&&e.target.files[0];if(file)await importDataFromFile(file);e.target.value='';});
   document.querySelectorAll('[data-tab-toggle]').forEach(b=>b.onchange=()=>{const tabs=getVisibleTabs();tabs[b.dataset.tabToggle]=b.checked;setVisibleTabs(tabs);render();});
 }
-async function habitModal(type){modal(type==='daily'?'Nuevo hábito diario':'Nuevo hábito nocturno',`${field('Nombre','name','','text','required')}${field('Icono (opcional)','icon','⭐')}${selectField('Tipo','repeat','permanent',[['permanent','Permanente'],['once','Solo una vez']])}<div class="field" id="onceDateField" style="display:none">${field('Fecha','onceDate',state.date,'date')}</div>`,async m=>{const repeat=m.querySelector('[name=repeat]').value;const onceDate=m.querySelector('[name=onceDate]')?.value||state.date;const name=m.querySelector('[name=name]').value.trim();if(!name){toast('Escribe un nombre.');return false;}await L.createHabit({name,icon:m.querySelector('[name=icon]').value,type,repeat,onceDate});toast('Hábito creado.');render();});}
+async function habitModal(type){modal(type==='daily'?'Nuevo hábito diario':'Nuevo hábito nocturno',`${field('Nombre','name','','text','required')}${field('Icono (opcional)','icon','⭐')}${selectField('Tipo','repeat','permanent',[['permanent','Permanente'],['once','Solo una vez']])}<div class="field" id="onceDateField" style="display:none">${field('Fecha','onceDate',state.date,'date')}</div>${field('Hora de recordatorio (opcional)','reminderTime','','time')}${field('Veces al día a recordar (opcional)','reminderCount','1','number','min="1" step="1"')}`,async m=>{const repeat=m.querySelector('[name=repeat]').value;const onceDate=m.querySelector('[name=onceDate]')?.value||state.date;const name=m.querySelector('[name=name]').value.trim();if(!name){toast('Escribe un nombre.');return false;}const reminderTime=m.querySelector('[name=reminderTime]').value||'';const reminderCount=m.querySelector('[name=reminderCount]').value;await L.createHabit({name,icon:m.querySelector('[name=icon]').value,type,repeat,onceDate,reminderTime,reminderCount});toast('Hábito creado.');render();});}
 async function taskModal(){modal('Nueva tarea',`${field('Nombre','name','','text','required')}${field('Descripción','description','')}${field('Fecha','date',state.date,'date')}${field('Hora opcional','time','','time')}${selectField('Repetición','repeat','once',[['once','Solo esta vez'],['daily','Todos los días'],['custom','Días específicos']])}<div class="field"><label>Días específicos (si aplica)</label><input name="days" placeholder="1,3,5 = lunes, miércoles, viernes"></div>`,async m=>{const name=m.querySelector('[name=name]').value.trim();if(!name){toast('Escribe la tarea.');return false;}const days=(m.querySelector('[name=days]').value||'').split(',').map(x=>Number(x.trim())).filter(x=>x>=0&&x<=6);await L.createTask({name,description:m.querySelector('[name=description]').value,date:m.querySelector('[name=date]').value,time:m.querySelector('[name=time]').value,repeat:m.querySelector('[name=repeat]').value,days});toast('Tarea creada.');scheduleReminders();render();});}
 async function reminderDayModal(dateKey){
   const list=await L.remindersForDate(dateKey);
