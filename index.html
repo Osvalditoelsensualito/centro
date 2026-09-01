@@ -2243,7 +2243,7 @@ async function habitsScreen(){const s=await L.settings();const animMode=s.habitC
     <div class="cal-nav"><button class="icon-btn" data-habit-cal-prev>‹</button><strong>${esc(monthLabel(monthKey))}</strong><button class="icon-btn" data-habit-cal-next>›</button></div>
     <div class="cal-grid cal-head">${['D','L','M','X','J','V','S'].map(dd=>`<div class="cal-headcell">${dd}</div>`).join('')}</div>
     <div class="cal-grid">${habitCalendarGrid(monthKey,occDates)}</div>
-  </article>`;const build=(title,items,type)=>`${section(title,`<button class="btn btn-primary btn-sm" data-add-habit="${type}">+ Agregar</button>`)}<article class="card habit-list-card">${items.length?items.map((x,i)=>`<div class="check-row ${x.completed?'complete':''}" data-row="${x.def.id}">${habitRowControl(x,type,animMode)}${x.def.image?`<img class="reminder-bubble-img" src="${x.def.image}" alt="">`:''}<div class="check-label"><strong>${esc(x.def.icon)} ${esc(x.def.name)}</strong><small>${esc(habitRepeatLabel(x.def))}</small></div><div class="habit-actions"><button class="icon-btn" data-move-habit="${type}:${x.def.id}:up" ${i===0?'disabled':''} title="Subir">↑</button><button class="icon-btn" data-move-habit="${type}:${x.def.id}:down" ${i===items.length-1?'disabled':''} title="Bajar">↓</button><button class="icon-btn" data-edit-habit="${x.def.id}" title="Editar">✎</button><button class="icon-btn" data-delete-habit="${x.def.id}">🗑</button></div></div>`).join(''):empty('✓','No hay hábitos pendientes.')}</article>`;return `<main class="screen">${calendarCard}${build('Hábitos diarios',d,'daily')}${build('Hábitos nocturnos',n,'night')}</main>`;}
+  </article>`;const build=(title,items,type)=>`${section(title,`<button class="btn btn-primary btn-sm" data-add-habit="${type}">+ Agregar</button>`)}<article class="card habit-list-card">${items.length?items.map((x,i)=>`<div class="check-row ${x.completed?'complete':''}" data-row="${x.def.id}">${habitRowControl(x,type,animMode)}${x.def.image?`<img class="reminder-bubble-img" src="${x.def.image}" alt="">`:''}<div class="check-label"><strong>${esc(x.def.icon)} ${esc(x.def.name)}</strong><small>${esc(habitRepeatLabel(x.def))}</small></div><div class="habit-actions"><button class="icon-btn" data-move-habit="${type}:${x.def.id}:up" ${i===0?'disabled':''} title="Subir">↑</button><button class="icon-btn" data-move-habit="${type}:${x.def.id}:down" ${i===items.length-1?'disabled':''} title="Bajar">↓</button><button class="icon-btn" data-edit-habit="${x.def.id}" title="Editar">✎</button><button class="icon-btn" data-delete-habit="${x.def.id}">🗑</button></div></div>`).join(''):empty('✓','No hay hábitos pendientes.')}</article>`;return `<main class="screen">${build('Hábitos diarios',d,'daily')}${build('Hábitos nocturnos',n,'night')}</main>`;}
 function reminderPrioLabel(p){return p==='alta'?'Alta':p==='baja'?'Baja':'Media';}
 function reminderRepeatLabel(r){return r==='daily'?'Diario':r==='weekly'?'Semanal':r==='monthly'?'Mensual':r==='yearly'?'Anual':'Una sola vez';}
 function reminderCalendarGrid(monthKey,defsByDate){
@@ -2265,15 +2265,34 @@ function reminderCalendarGrid(monthKey,defsByDate){
   }
   return cells.join('');
 }
+function reminderOccursOnDate(r,dateKey){
+  if(!r.date||dateKey<r.date) return false;
+  const [y,m,d]=dateKey.split('-').map(Number);
+  const occKey=reminderOccurrenceKey(r,new Date(y,m-1,d,12,0,0,0));
+  return occKey===dateKey;
+}
+function reminderOccurrencesInMonth(all,monthKey){
+  const defsByDate={};
+  const numDays=L.daysInMonth(monthKey);
+  const [y,m]=monthKey.split('-').map(Number);
+  for(let d=1;d<=numDays;d++){
+    const dateKey=`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    for(const r of all){if(reminderOccursOnDate(r,dateKey))(defsByDate[dateKey]=defsByDate[dateKey]||[]).push(r);}
+  }
+  return defsByDate;
+}
+function addMonthsToKey(monthKey,n){
+  const [y,m]=monthKey.split('-').map(Number);
+  const d=new Date(Date.UTC(y,m-1+n,1,12));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;
+}
 async function tasksScreen(){
   const monthKey=state.reminderCalendarMonth||L.today().slice(0,7);
   const all=await L.reminders();
-  const defsByDate={};
-  for(const r of all){(defsByDate[r.date]=defsByDate[r.date]||[]).push(r);}
-  const allMonths=[...new Set([...all.map(r=>r.date.slice(0,7)),L.today().slice(0,7)])].sort();
-  const idx=allMonths.indexOf(monthKey);
-  const canPrev=idx>0;
-  const canNext=idx>=0&&idx<allMonths.length-1;
+  const defsByDate=reminderOccurrencesInMonth(all,monthKey);
+  const maxMonth=addMonthsToKey(L.today().slice(0,7),12);
+  const canPrev=true;
+  const canNext=monthKey<maxMonth;
   return `<main class="screen">
     ${section('Recordatorio',`<button class="btn btn-primary btn-sm" data-add-reminder="${esc(state.date)}">+ Agregar</button>`)}
     <article class="card">
@@ -2950,7 +2969,7 @@ async function habitEditModal(id){
 }
 async function taskModal(){modal('Nueva tarea',`${field('Nombre','name','','text','required')}${field('Descripción','description','')}${field('Fecha','date',state.date,'date')}${field('Hora opcional','time','','time')}${selectField('Repetición','repeat','once',[['once','Solo esta vez'],['daily','Todos los días'],['custom','Días específicos']])}<div class="field"><label>Días específicos (si aplica)</label><input name="days" placeholder="1,3,5 = lunes, miércoles, viernes"></div>`,async m=>{const name=m.querySelector('[name=name]').value.trim();if(!name){toast('Escribe la tarea.');return false;}const days=(m.querySelector('[name=days]').value||'').split(',').map(x=>Number(x.trim())).filter(x=>x>=0&&x<=6);await L.createTask({name,description:m.querySelector('[name=description]').value,date:m.querySelector('[name=date]').value,time:m.querySelector('[name=time]').value,repeat:m.querySelector('[name=repeat]').value,days});toast('Tarea creada.');scheduleReminders();render();});}
 async function reminderDayModal(dateKey){
-  const list=await L.remindersForDate(dateKey);
+  const list=(await L.reminders()).filter(r=>reminderOccursOnDate(r,dateKey));
   const rows=list.length?list.map(r=>`<div class="reminder-list-row" data-reminder-open="${r.id}">${r.image?`<img src="${r.image}" alt="">`:'<span class="reminder-bubble-ic">🔔</span>'}<div class="reminder-list-row-copy"><strong>${esc(r.title)}</strong><small>${esc(r.time)} · ${esc(reminderRepeatLabel(r.repeat))} · Prioridad ${esc(reminderPrioLabel(r.priority)).toLowerCase()}</small></div><button class="icon-btn mini" data-delete-reminder="${r.id}">🗑</button></div>`).join(''):`<p class="muted">No hay recordatorios para este día.</p>`;
   const wrap=modal(L.shortDate(dateKey),`<div class="reminder-list">${rows}</div>`,async()=>true,'Cerrar');
   wrap.querySelector('#modalSave')?.remove();
