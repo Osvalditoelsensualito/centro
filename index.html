@@ -847,56 +847,6 @@ body{transition:background .2s ease,color .2s ease}
   font-size:10px;
   line-height:1.35;
 }
-/* ---------- Habit reminder bubble (feature-scoped) ---------- */
-.habit-reminder-bubble{
-  position:relative;
-  display:flex;
-  align-items:center;
-  gap:12px;
-  margin-bottom:10px;
-  padding:12px 14px;
-  border:1px solid var(--hairline);
-  border-radius:18px;
-  background:
-    radial-gradient(circle at 12% 12%, rgba(227,168,87,.10), transparent 40%),
-    var(--bg-elev-1);
-  box-shadow:0 10px 28px rgba(0,0,0,.10);
-}
-.habit-reminder-bubble-icon{
-  flex:0 0 auto;
-  width:40px;
-  height:40px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  border-radius:12px;
-  background:var(--bg-elev-2);
-  font-size:19px;
-}
-.habit-reminder-bubble-image{
-  flex:0 0 auto;
-  width:48px;
-  height:48px;
-  border-radius:12px;
-  overflow:hidden;
-  background:var(--bg-elev-2);
-}
-.habit-reminder-bubble-image img{width:100%;height:100%;object-fit:cover;display:block}
-.habit-reminder-bubble-copy{min-width:0;flex:1 1 auto}
-.habit-reminder-bubble-kicker{
-  color:var(--text-faint);
-  font-family:var(--font-mono);
-  font-size:10px;
-  letter-spacing:.08em;
-  text-transform:uppercase;
-  margin-bottom:3px;
-}
-.habit-reminder-bubble-title{
-  display:block;
-  font-family:var(--font-display);
-  font-size:15px;
-  font-weight:650;
-}
 .fitness-settings-note{
   margin:0 0 12px;
   color:var(--text-dim);
@@ -1117,7 +1067,7 @@ body{transition:background .2s ease,color .2s ease}
   async function habits(type){return (await all('habitDefs')).filter(x=>x.type===type).sort((a,b)=>a.order-b.order);}
   async function habitsForDate(date,type){const defs=(await habits(type)).filter(x=>x.repeat==='permanent'||(x.repeat==='once'&&x.onceDate===date));const out=[];for(const d of defs){const s=await get('habitStatus',`${d.id}__${date}`);out.push({def:d,completed:!!s?.completed});}return out;}
   async function toggleHabit(id,date){const k=`${id}__${date}`,e=await get('habitStatus',k),completed=!e?.completed;await put('habitStatus',{id:k,habitId:id,date,completed,completedAt:completed?Date.now():null});return completed;}
-  async function createHabit(x){const ds=await habits(x.type);const h={id:uid(),name:x.name.trim(),icon:x.icon||'⭐',type:x.type,repeat:x.repeat,onceDate:x.repeat==='once'?x.onceDate:null,order:ds.length,createdAt:Date.now(),reminderTime:x.reminderTime||null,reminderCount:x.reminderCount?Number(x.reminderCount):null};await put('habitDefs',h);return h;}
+  async function createHabit(x){const ds=await habits(x.type);const h={id:uid(),name:x.name.trim(),icon:x.icon||'⭐',type:x.type,repeat:x.repeat,onceDate:x.repeat==='once'?x.onceDate:null,order:ds.length,createdAt:Date.now()};await put('habitDefs',h);return h;}
   async function deleteHabit(id){await del('habitDefs',id);for(const s of await byIndex('habitStatus','by_habit',id))await del('habitStatus',s.id);}
   async function moveHabit(type,id,direction){const list=await habits(type);const idx=list.findIndex(h=>h.id===id);if(idx===-1)return;const swapIdx=direction==='up'?idx-1:idx+1;if(swapIdx<0||swapIdx>=list.length)return;const tmp=list[idx];list[idx]=list[swapIdx];list[swapIdx]=tmp;for(let i=0;i<list.length;i++){if(list[i].order!==i){list[i].order=i;await put('habitDefs',list[i]);}}}
   async function tasksForDate(date){const allT=await all('taskDefs'), vis=allT.filter(t=>t.repeat==='once'?t.date===date:t.repeat==='daily'?true:t.repeat==='custom'?t.days.includes(new Date(date+'T12:00:00Z').getUTCDay()):false);const out=[];for(const d of vis){const s=await get('taskStatus',`${d.id}__${date}`);out.push({def:d,completed:!!s?.completed});}return out.sort((a,b)=>(a.def.time||'99:99').localeCompare(b.def.time||'99:99'));}
@@ -1600,72 +1550,6 @@ function fitnessReminderHtml(view){
   </article>`;
 }
 
-/* ---------- Habit reminder bubble (feature-scoped) ---------- */
-const HABIT_REMINDER_INTERVAL_MS=5*FITNESS_HOUR_MS;
-const HABIT_REMINDER_WINDOW_MS=30*60*1000;
-function habitReminderWindows(def,dateKey){
-  if(!def?.reminderTime) return [];
-  const parts=String(def.reminderTime).split(':');
-  const hh=Number(parts[0])||0,mm=Number(parts[1])||0;
-  const count=Math.max(1,Number(def.reminderCount)||1);
-  const base=fitnessWallTimeTimestamp(dateKey,hh,mm,0);
-  const out=[];
-  for(let i=0;i<count;i++) out.push(base+i*HABIT_REMINDER_INTERVAL_MS);
-  return out;
-}
-function habitReminderView(x,dateKey,now){
-  if(x.completed) return {visible:false};
-  const windows=habitReminderWindows(x.def,dateKey);
-  if(!windows.length) return {visible:false};
-  for(let i=0;i<windows.length;i++){
-    const start=windows[i],end=start+HABIT_REMINDER_WINDOW_MS;
-    if(now>=start && now<end) return {visible:true,index:i,count:windows.length,nextRefreshAt:end};
-    if(now<start) return {visible:false,nextRefreshAt:start};
-  }
-  return {visible:false};
-}
-function habitReminderBubbleHtml(x,type,view){
-  const media=x.def.image?`<div class="habit-reminder-bubble-image"><img src="${esc(x.def.image)}" alt="${esc(x.def.name)}"></div>`:`<div class="habit-reminder-bubble-icon">${esc(x.def.icon||'⭐')}</div>`;
-  return `<article class="habit-reminder-bubble" data-habit-reminder="${x.def.id}">
-    ${media}
-    <div class="habit-reminder-bubble-copy">
-      <div class="habit-reminder-bubble-kicker">Recordatorio de hábito${view.count>1?` · ${view.index+1}/${view.count}`:''}</div>
-      <strong class="habit-reminder-bubble-title">${esc(x.def.icon||'')} ${esc(x.def.name)}</strong>
-    </div>
-    <button class="btn btn-primary btn-sm" data-${type==='daily'?'habit':'night-habit'}="${x.def.id}">Hecho</button>
-  </article>`;
-}
-async function activeHabitReminders(dateKey,now=Date.now()){
-  const [d,n]=await Promise.all([L.habitsForDate(dateKey,'daily'),L.habitsForDate(dateKey,'night')]);
-  const out=[];
-  for(const x of d){const v=habitReminderView(x,dateKey,now);if(v.visible)out.push({x,type:'daily',view:v});}
-  for(const x of n){const v=habitReminderView(x,dateKey,now);if(v.visible)out.push({x,type:'night',view:v});}
-  return out;
-}
-let habitReminderUiTimer=null;
-async function scheduleHabitReminderUi(){
-  clearTimeout(habitReminderUiTimer);
-  habitReminderUiTimer=null;
-  try{
-    const dateKey=state.date;
-    const now=Date.now();
-    const [d,n]=await Promise.all([L.habitsForDate(dateKey,'daily'),L.habitsForDate(dateKey,'night')]);
-    let target=null;
-    for(const x of [...d,...n]){
-      const v=habitReminderView(x,dateKey,now);
-      if(v.nextRefreshAt && (target===null || v.nextRefreshAt<target)) target=v.nextRefreshAt;
-    }
-    if(target===null) return;
-    if(target<=now) target=now+1000;
-    habitReminderUiTimer=setTimeout(async()=>{
-      habitReminderUiTimer=null;
-      try{
-        if(state.screen==='habits' && !document.querySelector('.modal-backdrop')) await render();
-      }catch(err){console.error(err);}
-    },Math.max(1000,target-now+50));
-  }catch(err){console.error(err);}
-}
-
 async function fitnessReminderConfigModal(){
   const s=await L.settings();
   const currentImage=s?.fitnessDeviceImage||FITNESS_DEFAULT_IMAGE;
@@ -2140,7 +2024,7 @@ function habitRowControl(x,type,animMode){
   }
   return `<button class="check-circle ${x.completed?'checked':''}" data-${type==='daily'?'habit':'night-habit'}="${x.def.id}">${x.completed?'✓':''}</button>`;
 }
-async function habitsScreen(){const s=await L.settings();const animMode=s.habitCompletionAnimation||'circle';const [d,n]=await Promise.all([L.habitsForDate(state.date,'daily'),L.habitsForDate(state.date,'night')]);const build=(title,items,type)=>`${section(title,`<button class="btn btn-primary btn-sm" data-add-habit="${type}">+ Agregar</button>`)}<article class="card habit-list-card">${items.length?items.map((x,i)=>`<div class="check-row ${x.completed?'complete':''}" data-row="${x.def.id}">${habitRowControl(x,type,animMode)}<div class="check-label"><strong>${esc(x.def.icon)} ${esc(x.def.name)}</strong>${x.def.repeat==='once'?'<small>Solo una vez</small>':'<small>Permanente</small>'}</div><div class="habit-actions"><button class="icon-btn" data-move-habit="${type}:${x.def.id}:up" ${i===0?'disabled':''} title="Subir">↑</button><button class="icon-btn" data-move-habit="${type}:${x.def.id}:down" ${i===items.length-1?'disabled':''} title="Bajar">↓</button><button class="icon-btn" data-delete-habit="${x.def.id}">🗑</button></div></div>`).join(''):empty('✓','No hay hábitos pendientes.')}</article>`;const now=Date.now();const reminders=[...d.map(x=>({x,type:'daily',view:habitReminderView(x,state.date,now)})),...n.map(x=>({x,type:'night',view:habitReminderView(x,state.date,now)}))].filter(r=>r.view.visible);const remindersHtml=reminders.length?reminders.map(r=>habitReminderBubbleHtml(r.x,r.type,r.view)).join(''):'';return `<main class="screen">${remindersHtml}${build('Hábitos diarios',d,'daily')}${build('Hábitos nocturnos',n,'night')}</main>`;}
+async function habitsScreen(){const s=await L.settings();const animMode=s.habitCompletionAnimation||'circle';const [d,n]=await Promise.all([L.habitsForDate(state.date,'daily'),L.habitsForDate(state.date,'night')]);const build=(title,items,type)=>`${section(title,`<button class="btn btn-primary btn-sm" data-add-habit="${type}">+ Agregar</button>`)}<article class="card habit-list-card">${items.length?items.map((x,i)=>`<div class="check-row ${x.completed?'complete':''}" data-row="${x.def.id}">${habitRowControl(x,type,animMode)}<div class="check-label"><strong>${esc(x.def.icon)} ${esc(x.def.name)}</strong>${x.def.repeat==='once'?'<small>Solo una vez</small>':'<small>Permanente</small>'}</div><div class="habit-actions"><button class="icon-btn" data-move-habit="${type}:${x.def.id}:up" ${i===0?'disabled':''} title="Subir">↑</button><button class="icon-btn" data-move-habit="${type}:${x.def.id}:down" ${i===items.length-1?'disabled':''} title="Bajar">↓</button><button class="icon-btn" data-delete-habit="${x.def.id}">🗑</button></div></div>`).join(''):empty('✓','No hay hábitos pendientes.')}</article>`;return `<main class="screen">${build('Hábitos diarios',d,'daily')}${build('Hábitos nocturnos',n,'night')}</main>`;}
 function reminderPrioLabel(p){return p==='alta'?'Alta':p==='baja'?'Baja':'Media';}
 function reminderRepeatLabel(r){return r==='daily'?'Diario':r==='weekly'?'Semanal':r==='yearly'?'Anual':'Una sola vez';}
 function reminderCalendarGrid(monthKey,defsByDate){
@@ -2650,7 +2534,7 @@ async function notesScreen(){const ns=await L.notes();return `<main class="scree
 async function historyScreen(){const arr=[];for(let i=0;i<90;i++)arr.push(await L.summary(L.addDays(state.date,-i)));const populated=arr.filter(x=>x.hasData);return `<main class="screen">${section('Historial',`<span class="pill">Días con actividad · últimos 90 días</span>`)}${populated.length?populated.map(x=>`<button class="history-card" data-history-date="${x.date}"><div><strong>${esc(cap(L.shortDate(x.date)))}</strong><small>${esc(cap(L.fmtDate(x.date)))}</small></div><div class="history-stats">${x.water.glasses?`<span>💧 ${x.water.glasses}/${x.water.goalGlasses}</span>`:''}${x.calories.consumed?`<span>🔥 ${x.calories.consumed}</span>`:''}${x.habits.done?`<span>✅ ${x.habits.done}/${x.habits.total}</span>`:''}${x.tasks.done?`<span>📋 ${x.tasks.done}/${x.tasks.total}</span>`:''}${x.running.ran||x.running.minutes||x.running.steps?`<span>🏃 ${x.running.ran?num(x.running.km)+' km':''}${x.running.minutes?` · ${x.running.minutes} min`:''}${x.running.steps?` · 🚶 ${num(x.running.steps)}`:''}</span>`:''}${x.trading.entries?.length?`<span>📈 ${x.trading.amount>0?'+':''}${money(x.trading.amount,'USD')}</span>`:''}${x.expensesTotal?`<span>💰 ${money(x.expensesTotal,'UYU')} gastos</span>`:''}</div></button>`).join(''):empty('◷','Todavía no hay días con información guardada.')}<article class="card history-notes-card"><button class="btn btn-ghost btn-block" data-nav="notes">📝 Ver notas</button></article></main>`;}
 async function settingsScreen(){const s=await L.settings();const habitAnim=s.habitCompletionAnimation||'circle';const uiScale=getUiScale();const sideMargin=getSideMargin();const isMobileDevice=getIsMobileDevice();return `<main class="screen">${section('Ajustes')}<article class="card">${section('Apariencia')}<div class="segmented"><button class="${s.theme==='dark'?'active':''}" data-theme="dark">🌙 Oscuro</button><button class="${s.theme==='light'?'active':''}" data-theme="light">☀️ Claro</button><button class="${s.theme==='system'?'active':''}" data-theme="system">⚙ Sistema</button></div><button class="setting-row" data-change-logo><span>🖼️ Cambiar logo</span><strong>${state.logo?(state.logoLabel||'Personalizado'):'Predeterminado'}</strong></button><div class="scale-row"><div class="scale-row-head"><span>🔍 Escalado visual de la web</span><strong id="ui-scale-value">${uiScale}</strong></div><input type="range" class="scale-slider" id="ui-scale-range" min="1" max="10" step="1" value="${uiScale}"><div class="scale-labels"><span>1 · Alejado</span><span>5 · Normal</span><span>10 · Cercano</span></div></div><div class="scale-row"><div class="scale-row-head"><span>📱 Tipo de dispositivo</span></div><div class="segmented" id="device-type-toggle"><button type="button" class="${!isMobileDevice?'active':''}" data-device-type="desktop">🖥️ No es celular</button><button type="button" class="${isMobileDevice?'active':''}" data-device-type="mobile">📱 Celular</button></div></div>${isMobileDevice?'':`<div class="scale-row"><div class="scale-row-head"><span>↔️ Margen lateral</span><strong id="side-margin-value">${sideMargin}px</strong></div><input type="range" class="scale-slider" id="side-margin-range" min="0" max="60" step="5" value="${sideMargin}"><div class="scale-labels"><span>0 · Sin margen</span><span>30 · Medio</span><span>60 · Máximo</span></div></div>`}</article><article class="card gemini-api-card">${section('API Key de Gemini')}<p class="fitness-settings-note">La clave se guarda localmente en este dispositivo y no se incluye en el código de la aplicación.</p><div class="gemini-api-status ${hasGeminiApiKey()?'good':'muted'}">${hasGeminiApiKey()?'✓ API Key configurada':'API Key no configurada'}</div><div class="field"><label>Ingresar API Key</label><input data-gemini-api-key-input type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Pega tu API Key de Gemini"></div><div class="gemini-api-actions"><button type="button" class="btn btn-primary" data-save-gemini-api-key>Guardar</button><button type="button" class="btn btn-danger" data-delete-gemini-api-key ${hasGeminiApiKey()?'':'disabled'}>Eliminar API Key</button></div></article><article class="card fitness-settings-card">${section('Recordatorio de uso de aparato fitness')}<p class="fitness-settings-note">Controla el recordatorio del smartwatch que aparece en Inicio. Se guarda en este dispositivo.</p><div class="segmented"><button type="button" class="${s.fitnessReminderEnabled!==false?'active':''}" data-fitness-toggle="1">Sí</button><button type="button" class="${s.fitnessReminderEnabled===false?'active':''}" data-fitness-toggle="0">No</button></div><div class="setting-row"><span>⌚ Dispositivo</span><strong class="fitness-setting-badge">${esc(fitnessDeviceName(s))}</strong></div></article><article class="card weather-settings-card">${section('Clima')}<p class="fitness-settings-note">Muestra el clima fijo de Montevideo en Inicio. Se actualiza como máximo una vez por hora.</p><div class="segmented"><button type="button" class="${s.showWeather!==false?'active':''}" data-weather-toggle="1">Sí</button><button type="button" class="${s.showWeather===false?'active':''}" data-weather-toggle="0">No</button></div></article><article class="card">${section('Objetivos')}<button class="setting-row" data-edit-water><span>💧 Agua</span><strong>${s.waterGoalGlasses} vasos · ${s.glassSizeMl} ml</strong></button><button class="setting-row" data-edit-cal-goal><span>🔥 Calorías</span><strong>${s.caloriesGoal} kcal</strong></button><button class="setting-row" data-edit-weight><span>⚖️ Peso para estimaciones</span><strong>${s.weightKg||70} kg</strong></button></article><article class="card">${section('Pestañas visibles')}<p class="muted">Elige qué secciones aparecen en la navegación de abajo. Se guarda en este dispositivo.</p><div class="reminder-list">${NAV_ITEMS.map(([id,ic,lab])=>`<div class="setting-row"><span>${ic} ${lab}</span><span class="row-right"><input type="checkbox" data-tab-toggle="${id}" ${getVisibleTabs()[id]!==false?'checked':''}></span></div>`).join('')}</div></article><article class="card">${section('Animación de realización de hábitos')}<p class="muted">Elige cómo marcas un hábito como realizado.</p><div class="segmented"><button class="${habitAnim==='circle'?'active':''}" data-habit-anim="circle">◯ Marcar círculo</button><button class="${habitAnim==='swipe'?'active':''}" data-habit-anim="swipe">➜ Deslizar</button></div></article><article class="card">${section('Datos') }<p class="muted">Tus datos personales viven en IndexedDB en este dispositivo. La aplicación no usa cuentas ni nube.</p><button class="btn btn-ghost btn-block" data-export-data>⬇️ Descargar datos</button><button class="btn btn-ghost btn-block" style="margin-top:8px" data-update-app>🔄 Actualizar app</button><button class="btn btn-ghost btn-block" style="margin-top:8px" data-import-data>⬆️ Subir datos</button><input type="file" id="import-data-input" accept="application/json,.json" style="display:none"><button class="btn btn-danger btn-block" style="margin-top:8px" data-clear-all>Eliminar todos mis datos</button></article><article class="card info-card"><strong>ℹ️</strong><span>La PWA necesita Internet únicamente para abrir sitios externos como Forex Factory, NYT o tus enlaces. El resto puede funcionar sin conexión una vez que el Service Worker haya guardado la app.</span><small class="muted" style="display:block;margin-top:8px">Versión 5.0 · Datos locales</small></article></main>`;}
 let _lastRenderedScreen=null;
-async function render(){if(!state._init)state._init=true;if(state.screen!=='home'){clearTimeout(weatherRefreshTimer);weatherRefreshTimer=null;document.querySelector('[data-home-layout-editor]')?.remove();homeLayoutState.active=false;homeLayoutState.selectedId=null;homeLayoutState.draggingId=null;}document.documentElement.dataset.theme=state.theme;const prevScreenEl=document.querySelector('.screen');const samScreen=_lastRenderedScreen===state.screen;const prevScrollTop=(samScreen&&prevScreenEl)?prevScreenEl.scrollTop:0;const prevNavEl=document.querySelector('.bottom-nav');const prevNavScrollLeft=prevNavEl?prevNavEl.scrollLeft:0;let body='';if(state.screen==='home')body=await home();else if(state.screen==='habits')body=await habitsScreen();else if(state.screen==='tasks')body=await tasksScreen();else if(state.screen==='gym')body=await gymScreen();else if(state.screen==='movies')body=await moviesScreen();else if(state.screen==='trading')body=await tradingScreen();else if(state.screen==='calories')body=await caloriesScreen();else if(state.screen==='finance')body=await financeScreen();else if(state.screen==='links')body=await linksScreen();else if(state.screen==='news')body=await newsScreen();else if(state.screen==='water')body=await waterScreen();else if(state.screen==='running')body=await runningScreen();else if(state.screen==='notes')body=await notesScreen();else if(state.screen==='history')body=await historyScreen();else if(state.screen==='settings')body=await settingsScreen();const secondary=['water','notes','history','settings'].includes(state.screen);document.querySelector('#root').innerHTML=`${header(secondary?({'water':'Agua','notes':'Notas','history':'Historial','settings':'Ajustes'}[state.screen]):'',secondary)}${body}${bottomNav()}<div id="toast"></div>`;bind();_lastRenderedScreen=state.screen;const newScreenEl=document.querySelector('.screen');if(newScreenEl&&samScreen)newScreenEl.scrollTop=prevScrollTop;const newNavEl=document.querySelector('.bottom-nav');if(newNavEl)newNavEl.scrollLeft=prevNavScrollLeft;scheduleFitnessReminderUi();scheduleHabitReminderUi();if(state.screen==='home'){bindHomeBubbleEditor();requestAnimationFrame(()=>{applyHomeLayoutPreview();enforceHomeHeights();});}}
+async function render(){if(!state._init)state._init=true;if(state.screen!=='home'){clearTimeout(weatherRefreshTimer);weatherRefreshTimer=null;document.querySelector('[data-home-layout-editor]')?.remove();homeLayoutState.active=false;homeLayoutState.selectedId=null;homeLayoutState.draggingId=null;}document.documentElement.dataset.theme=state.theme;const prevScreenEl=document.querySelector('.screen');const samScreen=_lastRenderedScreen===state.screen;const prevScrollTop=(samScreen&&prevScreenEl)?prevScreenEl.scrollTop:0;const prevNavEl=document.querySelector('.bottom-nav');const prevNavScrollLeft=prevNavEl?prevNavEl.scrollLeft:0;let body='';if(state.screen==='home')body=await home();else if(state.screen==='habits')body=await habitsScreen();else if(state.screen==='tasks')body=await tasksScreen();else if(state.screen==='gym')body=await gymScreen();else if(state.screen==='movies')body=await moviesScreen();else if(state.screen==='trading')body=await tradingScreen();else if(state.screen==='calories')body=await caloriesScreen();else if(state.screen==='finance')body=await financeScreen();else if(state.screen==='links')body=await linksScreen();else if(state.screen==='news')body=await newsScreen();else if(state.screen==='water')body=await waterScreen();else if(state.screen==='running')body=await runningScreen();else if(state.screen==='notes')body=await notesScreen();else if(state.screen==='history')body=await historyScreen();else if(state.screen==='settings')body=await settingsScreen();const secondary=['water','notes','history','settings'].includes(state.screen);document.querySelector('#root').innerHTML=`${header(secondary?({'water':'Agua','notes':'Notas','history':'Historial','settings':'Ajustes'}[state.screen]):'',secondary)}${body}${bottomNav()}<div id="toast"></div>`;bind();_lastRenderedScreen=state.screen;const newScreenEl=document.querySelector('.screen');if(newScreenEl&&samScreen)newScreenEl.scrollTop=prevScrollTop;const newNavEl=document.querySelector('.bottom-nav');if(newNavEl)newNavEl.scrollLeft=prevNavScrollLeft;scheduleFitnessReminderUi();if(state.screen==='home'){bindHomeBubbleEditor();requestAnimationFrame(()=>{applyHomeLayoutPreview();enforceHomeHeights();});}}
 function bind(){document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>go(b.dataset.nav));document.querySelectorAll('[data-habit],[data-night-habit]').forEach(b=>b.onclick=async()=>{const id=b.dataset.habit||b.dataset.nightHabit;await L.toggleHabit(id,state.date);render();});document.querySelectorAll('[data-task]').forEach(b=>b.onclick=async()=>{await L.toggleTask(b.dataset.task,state.date);scheduleReminders();render();});document.querySelectorAll('[data-delete-habit]').forEach(b=>b.onclick=async()=>{if(confirm('¿Eliminar este hábito?')){await L.deleteHabit(b.dataset.deleteHabit);render();}});document.querySelectorAll('[data-move-habit]').forEach(b=>b.onclick=async()=>{const [type,id,direction]=b.dataset.moveHabit.split(':');await L.moveHabit(type,id,direction);render();});document.querySelectorAll('[data-delete-task]').forEach(b=>b.onclick=async()=>{if(confirm('¿Eliminar esta tarea?')){await L.deleteTask(b.dataset.deleteTask);scheduleReminders();render();}});
   document.querySelectorAll('button[data-theme]').forEach(b=>b.onclick=async()=>{const t=b.dataset.theme;setTheme(t);await L.updateSettings({theme:t});render();});
   const uiScaleRange=document.getElementById('ui-scale-range');if(uiScaleRange){uiScaleRange.oninput=()=>{const v=uiScaleRange.value;applyUiScale(v);const label=document.getElementById('ui-scale-value');if(label)label.textContent=v;};uiScaleRange.onchange=()=>{setUiScale(uiScaleRange.value);};}
@@ -2793,7 +2677,7 @@ function bind(){document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=
   $('#import-data-input')?.addEventListener('change',async(e)=>{const file=e.target.files&&e.target.files[0];if(file)await importDataFromFile(file);e.target.value='';});
   document.querySelectorAll('[data-tab-toggle]').forEach(b=>b.onchange=()=>{const tabs=getVisibleTabs();tabs[b.dataset.tabToggle]=b.checked;setVisibleTabs(tabs);render();});
 }
-async function habitModal(type){modal(type==='daily'?'Nuevo hábito diario':'Nuevo hábito nocturno',`${field('Nombre','name','','text','required')}${field('Icono (opcional)','icon','⭐')}${selectField('Tipo','repeat','permanent',[['permanent','Permanente'],['once','Solo una vez']])}<div class="field" id="onceDateField" style="display:none">${field('Fecha','onceDate',state.date,'date')}</div>${field('Hora de recordatorio (opcional)','reminderTime','','time')}${field('Veces al día a recordar (opcional)','reminderCount','','number','min="1" step="1"')}`,async m=>{const repeat=m.querySelector('[name=repeat]').value;const onceDate=m.querySelector('[name=onceDate]')?.value||state.date;const name=m.querySelector('[name=name]').value.trim();if(!name){toast('Escribe un nombre.');return false;}const reminderTime=m.querySelector('[name=reminderTime]').value||null;const reminderCount=m.querySelector('[name=reminderCount]').value?Number(m.querySelector('[name=reminderCount]').value):null;await L.createHabit({name,icon:m.querySelector('[name=icon]').value,type,repeat,onceDate,reminderTime,reminderCount});toast('Hábito creado.');render();});}
+async function habitModal(type){modal(type==='daily'?'Nuevo hábito diario':'Nuevo hábito nocturno',`${field('Nombre','name','','text','required')}${field('Icono (opcional)','icon','⭐')}${selectField('Tipo','repeat','permanent',[['permanent','Permanente'],['once','Solo una vez']])}<div class="field" id="onceDateField" style="display:none">${field('Fecha','onceDate',state.date,'date')}</div>`,async m=>{const repeat=m.querySelector('[name=repeat]').value;const onceDate=m.querySelector('[name=onceDate]')?.value||state.date;const name=m.querySelector('[name=name]').value.trim();if(!name){toast('Escribe un nombre.');return false;}await L.createHabit({name,icon:m.querySelector('[name=icon]').value,type,repeat,onceDate});toast('Hábito creado.');render();});}
 async function taskModal(){modal('Nueva tarea',`${field('Nombre','name','','text','required')}${field('Descripción','description','')}${field('Fecha','date',state.date,'date')}${field('Hora opcional','time','','time')}${selectField('Repetición','repeat','once',[['once','Solo esta vez'],['daily','Todos los días'],['custom','Días específicos']])}<div class="field"><label>Días específicos (si aplica)</label><input name="days" placeholder="1,3,5 = lunes, miércoles, viernes"></div>`,async m=>{const name=m.querySelector('[name=name]').value.trim();if(!name){toast('Escribe la tarea.');return false;}const days=(m.querySelector('[name=days]').value||'').split(',').map(x=>Number(x.trim())).filter(x=>x>=0&&x<=6);await L.createTask({name,description:m.querySelector('[name=description]').value,date:m.querySelector('[name=date]').value,time:m.querySelector('[name=time]').value,repeat:m.querySelector('[name=repeat]').value,days});toast('Tarea creada.');scheduleReminders();render();});}
 async function reminderDayModal(dateKey){
   const list=await L.remindersForDate(dateKey);
